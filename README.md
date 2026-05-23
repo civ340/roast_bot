@@ -163,7 +163,7 @@ app_settings  — 後台設定（provider、model、api key 等）
 
 ## 開發
 
-> **Python 版本需求：>= 3.11**（使用了 `str | None` union type syntax 與 `asyncpg` 型別支援）
+> **Python 版本需求：>= 3.11, < 3.14**（`asyncpg`、`discord.py` 含 C extension，3.14 尚無穩定 wheel）
 
 ```bash
 # 後端（本地）
