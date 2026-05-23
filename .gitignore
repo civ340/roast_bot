@@ -1,11 +1,27 @@
+# Environment
 .env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-node_modules/
-dist/
+*.egg-info/
 .venv/
 venv/
-*.egg-info/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+
+# OS
 .DS_Store
+
+# Local notes
 note.md
+
+# Claude Code
+.claude/
+
+# Nested repo (not part of this project)
+roast_bot/
