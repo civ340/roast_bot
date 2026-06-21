@@ -32,6 +32,17 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 
+CREATE TABLE IF NOT EXISTS request_logs (
+    id          SERIAL PRIMARY KEY,
+    method      VARCHAR(10)  NOT NULL,
+    path        TEXT         NOT NULL,
+    status_code SMALLINT     NOT NULL,
+    duration_ms INTEGER      NOT NULL,
+    created_at  TIMESTAMP    DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key         VARCHAR(100) PRIMARY KEY,
     value       TEXT NOT NULL DEFAULT '',

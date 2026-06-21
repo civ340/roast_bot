@@ -9,7 +9,7 @@ function levelEmoji(mode: string, level: number) {
   return mode === 'excuse' ? (EXCUSE_EMOJI[level] ?? '👑') : (ROAST_EMOJI[level] ?? '👑')
 }
 
-const MODE_LABEL: Record<string, string> = { roast: '毒舌 🐍', excuse: '借口 📋' }
+const MODE_LABEL: Record<string, string> = { roast: '嗆辣 🐍', excuse: '借口 📋' }
 const NUCLEAR_LABEL: Record<string, string> = { roast: '💥 舌王', excuse: '👑 借口王' }
 
 export default function Conversations() {
@@ -64,7 +64,7 @@ export default function Conversations() {
                 <span className="text-purple-400">{NUCLEAR_LABEL[s.mode] ?? '💥'}</span>
               )}
               <span className="ml-auto">
-                {new Date(s.created_at).toLocaleDateString('zh-TW')}
+                {new Date(s.created_at.endsWith('Z') ? s.created_at : s.created_at + 'Z').toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' })}
               </span>
             </div>
           </button>
@@ -99,9 +99,10 @@ export default function Conversations() {
                   )}
                   <p className="whitespace-pre-wrap">{m.content}</p>
                   <div className="text-xs text-gray-500 mt-1 text-right">
-                    {new Date(m.created_at).toLocaleTimeString('zh-TW', {
+                    {new Date(m.created_at.endsWith('Z') ? m.created_at : m.created_at + 'Z').toLocaleTimeString('zh-TW', {
                       hour: '2-digit',
                       minute: '2-digit',
+                      timeZone: 'Asia/Taipei',
                     })}
                   </div>
                 </div>

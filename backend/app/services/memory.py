@@ -1,8 +1,10 @@
+# 資料庫操作層：負責用戶、session、訊息的讀寫
 import asyncpg
 from uuid import UUID
 
 
 async def get_or_create_user(pool: asyncpg.Pool, user_id: int, username: str | None) -> int:
+    # 用戶不存在則建立，回傳該用戶的最高嗆辣等級
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT id, max_venom_level FROM users WHERE id = $1", user_id)
         if not row:
@@ -15,6 +17,7 @@ async def get_or_create_user(pool: asyncpg.Pool, user_id: int, username: str | N
 
 
 async def create_session(pool: asyncpg.Pool, user_id: int, start_level: int, mode: str = "roast") -> str:
+    # 建立新的對話 session，mode 為 'roast' 或 'excuse'
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -31,10 +34,11 @@ async def save_message(
     pool: asyncpg.Pool,
     session_id: str,
     user_id: int,
-    role: str,
+    role: str,        # 'user' 或 'bot'
     content: str,
     venom_level: int,
 ):
+    # 儲存一條訊息記錄
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -46,6 +50,7 @@ async def save_message(
 
 
 async def escalate_venom(pool: asyncpg.Pool, session_id: str, user_id: int) -> int | None:
+    # 嗆辣等級 +1（上限 5），同步更新用戶的歷史最高等級，回傳新等級（已達上限回傳 None）
     async with pool.acquire() as conn:
         new_level = await conn.fetchval(
             """
@@ -65,6 +70,7 @@ async def escalate_venom(pool: asyncpg.Pool, session_id: str, user_id: int) -> i
 
 
 async def set_level(pool: asyncpg.Pool, session_id: str, level: int) -> None:
+    # 直接設定 session 等級（借口模式用）
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE sessions SET venom_level = $1, updated_at = NOW() WHERE id = $2",
@@ -73,6 +79,7 @@ async def set_level(pool: asyncpg.Pool, session_id: str, level: int) -> None:
 
 
 async def trigger_nuclear(pool: asyncpg.Pool, session_id: str) -> None:
+    # 標記此 session 已觸發核彈，防止繼續升級
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE sessions SET nuclear_triggered = TRUE WHERE id = $1",
@@ -81,6 +88,7 @@ async def trigger_nuclear(pool: asyncpg.Pool, session_id: str) -> None:
 
 
 async def get_session(pool: asyncpg.Pool, session_id: str) -> dict | None:
+    # 取得 session 的當前狀態
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT venom_level, nuclear_triggered, user_id FROM sessions WHERE id = $1",

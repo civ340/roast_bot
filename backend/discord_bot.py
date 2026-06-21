@@ -1,3 +1,4 @@
+# Discord Bot：slash command /roast 與 /excuse，支援升級按鈕（discord.ui.View）
 import asyncio
 import discord
 from discord import app_commands
@@ -77,7 +78,7 @@ class TongueBot(discord.Client):
 client = TongueBot()
 
 
-@client.tree.command(name="roast", description="毒舌評論你說的話")
+@client.tree.command(name="roast", description="嗆辣評論你說的話")
 @app_commands.describe(text="要被評論的東西")
 async def roast_cmd(interaction: discord.Interaction, text: str):
     if not cfg.is_enabled("discord_enabled"):

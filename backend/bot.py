@@ -1,3 +1,4 @@
+# Telegram Bot：處理用戶訊息、模式選擇（嗆辣/借口）、升級按鈕互動
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -10,7 +11,7 @@ EXCUSE_EMOJI = ["📋", "🎭", "💣", "🌀", "🚀", "👑"]
 
 MAIN_MENU = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("毒舌我 🐍", callback_data="mode:roast"),
+        InlineKeyboardButton("嗆我 🐍", callback_data="mode:roast"),
         InlineKeyboardButton("幫我找借口 📋", callback_data="mode:excuse"),
     ]
 ])
@@ -182,18 +183,16 @@ async def _check_enabled(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return True
 
 
-def main():
-    import asyncio
+async def _post_init(application):
+    # event loop 啟動後才載入設定，避免 asyncio event loop 衝突
     from app.db.database import get_pool
     from app.services import app_settings as cfg
+    pool = await get_pool()
+    await cfg.load(pool)
 
-    async def _load_settings():
-        pool = await get_pool()
-        await cfg.load(pool)
 
-    asyncio.run(_load_settings())
-
-    app = Application.builder().token(settings.telegram_bot_token).build()
+def main():
+    app = Application.builder().token(settings.telegram_bot_token).post_init(_post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))

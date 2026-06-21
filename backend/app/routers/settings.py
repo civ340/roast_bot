@@ -1,3 +1,4 @@
+# 後台設定路由：讓管理介面讀取與更新 LLM 設定、平台開關
 from fastapi import APIRouter
 from pydantic import BaseModel
 from app.db.database import get_pool
@@ -9,7 +10,7 @@ router = APIRouter()
 class SettingsPayload(BaseModel):
     llm_provider:     str | None = None
     llm_model:        str | None = None
-    llm_api_key:      str | None = None
+    llm_api_key:      str | None = None  # 傳入 '****' 代表不更新
     llm_base_url:     str | None = None
     telegram_enabled: bool | None = None
     line_enabled:     bool | None = None
@@ -18,11 +19,13 @@ class SettingsPayload(BaseModel):
 
 @router.get("")
 async def get_settings():
+    # 回傳所有設定，api_key 已設定時遮罩為 ****
     return cfg.all_public()
 
 
 @router.put("")
 async def update_settings(payload: SettingsPayload):
+    # 只更新有傳入的欄位，api_key 為 **** 時跳過（代表前端顯示遮罩未修改）
     pool = await get_pool()
     updates: dict[str, str] = {}
 

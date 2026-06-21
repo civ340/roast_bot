@@ -1,3 +1,4 @@
+# 借口生成路由：處理開始借口與升級請求（最高 6 級）
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from app.db.database import get_pool
@@ -11,6 +12,7 @@ MAX_EXCUSE_LEVEL = 6
 
 @router.post("/start", response_model=ExcuseResponse)
 async def start_excuse(req: ExcuseRequest):
+    # 建立新 session，從等級 1 生成第一個借口
     pool = await get_pool()
     await memory.get_or_create_user(pool, req.user_id, req.username)
     session_id = await memory.create_session(pool, req.user_id, start_level=1, mode="excuse")
@@ -31,6 +33,7 @@ async def start_excuse(req: ExcuseRequest):
 
 @router.post("/escalate", response_model=ExcuseResponse)
 async def escalate_excuse(req: EscalateRequest):
+    # 借口等級 +1，帶入上一條借口讓模型知道要更誇張
     pool = await get_pool()
     session = await memory.get_session(pool, req.session_id)
     if not session:

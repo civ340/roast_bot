@@ -17,13 +17,22 @@ export interface ConversationRecord {
 }
 
 export interface AppSettings {
-  llm_provider:     'ollama' | 'openai' | 'anthropic'
+  llm_provider:     string
   llm_model:        string
   llm_api_key:      string
   llm_base_url:     string
   telegram_enabled: string
   line_enabled:     string
   discord_enabled:  string
+}
+
+export interface RequestLog {
+  id: number
+  method: string
+  path: string
+  status_code: number
+  duration_ms: number
+  created_at: string
 }
 
 export interface SessionRecord {

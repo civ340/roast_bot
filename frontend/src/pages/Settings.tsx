@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchSettings, saveSettings } from '../api/client'
 import type { AppSettings } from '../types'
 
@@ -9,9 +9,29 @@ const PROVIDERS = [
 ]
 
 const PROVIDER_MODELS: Record<string, string[]> = {
-  ollama:    ['llama3', 'llama3.1', 'gemma3', 'mistral', 'qwen2.5'],
-  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
+  ollama: [
+    'llama3.3', 'llama3.2', 'llama3.1', 'llama3',
+    'qwen3', 'qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5:32b', 'qwen2.5',
+    'gemma3:4b', 'gemma3:12b', 'gemma3:27b', 'gemma3', 'gemma2',
+    'deepseek-r1:7b', 'deepseek-r1:14b', 'deepseek-r1:32b', 'deepseek-r1',
+    'mistral', 'mistral-nemo',
+    'phi4', 'phi4-mini', 'phi3.5',
+    'codellama',
+  ],
+  openai: [
+    'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+    'gpt-4o', 'gpt-4o-mini',
+    'o4-mini', 'o3', 'o3-mini',
+    'gpt-4-turbo',
+  ],
+  anthropic: [
+    'claude-opus-4-7',
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5-20251001',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-opus-20240229',
+  ],
 }
 
 function Toggle({ label, enabled, onChange }: { label: string; enabled: boolean; onChange: (v: boolean) => void }) {
@@ -33,6 +53,8 @@ export default function Settings() {
   const [form, setForm] = useState<AppSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [editingKey, setEditingKey] = useState(false)
+  const keyInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchSettings().then(setForm) }, [])
 
@@ -40,12 +62,19 @@ export default function Settings() {
 
   const set = (k: keyof AppSettings, v: string) => setForm(f => f ? { ...f, [k]: v } : f)
 
+  const startEditKey = () => {
+    setEditingKey(true)
+    set('llm_api_key', '')
+    setTimeout(() => keyInputRef.current?.focus(), 0)
+  }
+
   const handleSave = async () => {
     if (!form) return
     setSaving(true)
     try {
       const updated = await saveSettings(form)
       setForm(updated)
+      setEditingKey(false)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
@@ -65,15 +94,16 @@ export default function Settings() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Provider</label>
-            <select
+            <input
               value={form.llm_provider}
               onChange={e => set('llm_provider', e.target.value)}
+              list="provider-suggestions"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500"
-            >
-              {PROVIDERS.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
+              placeholder="e.g. ollama、openai、anthropic"
+            />
+            <datalist id="provider-suggestions">
+              {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </datalist>
           </div>
 
           <div>
@@ -93,13 +123,29 @@ export default function Settings() {
           {form.llm_provider !== 'ollama' && (
             <div>
               <label className="block text-sm text-gray-400 mb-1">API Key</label>
-              <input
-                type="password"
-                value={form.llm_api_key}
-                onChange={e => set('llm_api_key', e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500"
-                placeholder={form.llm_api_key === '****' ? '已設定（輸入新值覆蓋）' : '輸入 API Key'}
-              />
+              {!editingKey && form.llm_api_key === '****' ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-400 tracking-widest">
+                    ● ● ● ● ● ● ● ●
+                  </div>
+                  <button
+                    type="button"
+                    onClick={startEditKey}
+                    className="px-3 py-2 text-sm rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 whitespace-nowrap"
+                  >
+                    修改
+                  </button>
+                </div>
+              ) : (
+                <input
+                  ref={keyInputRef}
+                  type="password"
+                  value={form.llm_api_key === '****' ? '' : form.llm_api_key}
+                  onChange={e => set('llm_api_key', e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500"
+                  placeholder="輸入新的 API Key"
+                />
+              )}
             </div>
           )}
 

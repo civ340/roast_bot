@@ -1,3 +1,4 @@
+# 嗆辣功能路由：處理開始評論與升級請求
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from app.db.database import get_pool
@@ -9,6 +10,7 @@ router = APIRouter()
 
 @router.post("/start", response_model=RoastResponse)
 async def start_roast(req: RoastRequest):
+    # 建立新 session，從等級 1 開始生成第一條評論
     pool = await get_pool()
     await memory.get_or_create_user(pool, req.user_id, req.username)
     session_id = await memory.create_session(pool, req.user_id, start_level=1, mode="roast")
@@ -29,6 +31,7 @@ async def start_roast(req: RoastRequest):
 
 @router.post("/escalate", response_model=RoastResponse)
 async def escalate_roast(req: EscalateRequest):
+    # 將現有 session 的嗆辣等級 +1，帶入上一條回應讓模型知道要超越它
     pool = await get_pool()
     session = await memory.get_session(pool, req.session_id)
     if not session:
@@ -41,6 +44,7 @@ async def escalate_roast(req: EscalateRequest):
 
     is_nuclear = False
     if new_level is None:
+        # 已在等級 5，觸發核彈終極模式
         new_level = 5
         is_nuclear = True
         await memory.trigger_nuclear(pool, req.session_id)

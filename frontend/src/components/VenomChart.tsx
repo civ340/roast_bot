@@ -4,7 +4,7 @@ interface Props {
 
 const LEVEL_META: Record<number, { label: string; color: string }> = {
   1: { label: '小嘴一下', color: 'bg-blue-500' },
-  2: { label: '毒舌登場', color: 'bg-yellow-500' },
+  2: { label: '嗆辣登場', color: 'bg-yellow-500' },
   3: { label: '蛇吻', color: 'bg-orange-500' },
   4: { label: '劇毒', color: 'bg-red-500' },
   5: { label: '蛇王', color: 'bg-purple-500' },
@@ -19,7 +19,7 @@ export default function VenomChart({ data }: Props) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h3 className="text-sm text-gray-400 mb-4">毒蛇等級分布</h3>
+      <h3 className="text-sm text-gray-400 mb-4">嗆辣等級分布</h3>
       <div className="space-y-3">
         {filled.map(({ level, count }) => {
           const meta = LEVEL_META[level]
