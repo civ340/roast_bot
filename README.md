@@ -60,6 +60,9 @@
 
 ## 快速開始
 
+以下是**本機開發環境**的啟動方式。要對外部署（讓其他人能從網路連進來）請跳到
+[對外部署](#對外部署) 那節，不要直接照抄這裡的指令。
+
 ### 1. 複製設定檔
 
 ```bash
@@ -69,6 +72,10 @@ cp .env.example .env
 填入必要的值（詳見下方環境變數說明）。
 
 ### 2. 啟動服務
+
+**⚠️ 這裡的指令會經由 `docker-compose.override.yml` 把 backend 的 8000 port 發布到本機**
+**（方便 `npm run dev` 的 vite proxy 跟 ngrok 測 LINE webhook）。對外部署時請改用
+[對外部署](#對外部署) 那節的指令，否則 `/api/roast`、`/api/excuse` 這類內部端點會被公開存取。**
 
 ```bash
 # 標準啟動（Telegram + LINE + 管理後台）
@@ -85,9 +92,44 @@ docker compose --profile discord up -d --build
 ollama pull llama3
 ```
 
-### 4. 開啟管理後台
+### 4. 建立管理後台帳號
 
-瀏覽器開啟 `http://localhost:5173`，進入「⚙️ 設定」切換模型與平台。
+後台需要登入才能存取，第一次使用需手動建立管理員帳號：
+
+```bash
+docker compose exec backend python create_admin.py
+```
+
+依照提示輸入帳號、密碼即可（密碼以 bcrypt 雜湊後存入 `admin_users` 資料表）。
+
+### 5. 開啟管理後台
+
+瀏覽器開啟 `http://localhost:5173`，用剛建立的帳號登入後進入「⚙️ 設定」切換模型與平台。
+
+---
+
+## 對外部署
+
+要讓機器對外（非本機）可連線時，**不要**用「快速開始」裡的 `docker compose up -d --build`，
+改用 `-f` 明確排除 `docker-compose.override.yml`，backend 的 8000 port 跟 postgres 的
+5433 port 才都不會被公開：
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+
+# 含 Discord Bot
+docker compose -f docker-compose.yml --profile discord up -d --build
+```
+
+這樣跑起來只有 `frontend`（nginx，5173）會發布到 host，其他服務都只透過 docker
+內部網路互相溝通：
+
+- `/api/roast`、`/api/excuse` 是給 Telegram/Discord bot 用的內部端點，靠
+  `API_SECRET_KEY` 共享密鑰保護，不應該讓 backend 直接暴露在網路上。
+- postgres 也不該對外，不然資料庫密碼就變成唯一的防線。
+- LINE 的 webhook（`/webhook/line`）改由 nginx 轉發給 backend（見
+  `frontend/nginx.conf` 的 `location /webhook`），所以即使 backend 沒有對外，
+  平台一樣可以打 `https://你的網域/webhook/line` 進來，不需要額外開 port。
 
 ---
 

@@ -43,6 +43,22 @@ CREATE TABLE IF NOT EXISTS request_logs (
 
 CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            SERIAL PRIMARY KEY,
+    username      VARCHAR(100) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at    TIMESTAMP DEFAULT NOW()
+);
+
+-- 後臺登入 session 存 DB（而非記憶體），backend 重啟或多副本部署不會讓使用者被登出
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token       TEXT PRIMARY KEY,
+    username    VARCHAR(100) NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key         VARCHAR(100) PRIMARY KEY,
     value       TEXT NOT NULL DEFAULT '',

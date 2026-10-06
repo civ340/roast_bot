@@ -1,0 +1,16 @@
+# 本機開發用覆蓋設定，docker compose 預設會自動疊加這份檔案（不用加 -f）。
+# 把 backend:8000、postgres:5432 發布到 host，讓 `npm run dev` 的 vite proxy、
+# ngrok（LINE webhook 本機測試）、還有本機的 DB 工具（DBeaver 等）能直接連進去。
+#
+# 正式對外部署時這兩個 port 都不該公開：
+# - backend 的 /api/roast、/api/excuse 只靠共享密鑰保護，不應該讓任何人都摸得到
+# - postgres 直接對外等於資料庫密碼變成唯一防線
+# 跑起來時記得不要帶這個檔案：
+#   docker compose -f docker-compose.yml up -d
+services:
+  backend:
+    ports:
+      - "8000:8000"
+  postgres:
+    ports:
+      - "5433:5432"

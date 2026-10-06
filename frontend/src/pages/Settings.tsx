@@ -54,6 +54,8 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [editingKey, setEditingKey] = useState(false)
+  // 使用者實際輸入過 API Key 才送出，避免未修改時送出空字串而清除已存的 key
+  const [keyDirty, setKeyDirty] = useState(false)
   const keyInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchSettings().then(setForm) }, [])
@@ -72,9 +74,11 @@ export default function Settings() {
     if (!form) return
     setSaving(true)
     try {
-      const updated = await saveSettings(form)
+      const { llm_api_key, ...rest } = form
+      const updated = await saveSettings(keyDirty ? { ...rest, llm_api_key } : rest)
       setForm(updated)
       setEditingKey(false)
+      setKeyDirty(false)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
@@ -141,7 +145,7 @@ export default function Settings() {
                   ref={keyInputRef}
                   type="password"
                   value={form.llm_api_key === '****' ? '' : form.llm_api_key}
-                  onChange={e => set('llm_api_key', e.target.value)}
+                  onChange={e => { set('llm_api_key', e.target.value); setKeyDirty(true) }}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500"
                   placeholder="輸入新的 API Key"
                 />

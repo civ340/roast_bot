@@ -10,7 +10,7 @@ router = APIRouter()
 class SettingsPayload(BaseModel):
     llm_provider:     str | None = None
     llm_model:        str | None = None
-    llm_api_key:      str | None = None  # 傳入 '****' 代表不更新
+    llm_api_key:      str | None = None  # None 或 '****' 代表不更新，'' 代表清除
     llm_base_url:     str | None = None
     telegram_enabled: bool | None = None
     line_enabled:     bool | None = None
@@ -33,7 +33,8 @@ async def update_settings(payload: SettingsPayload):
         updates["llm_provider"] = payload.llm_provider
     if payload.llm_model is not None:
         updates["llm_model"] = payload.llm_model
-    if payload.llm_api_key is not None and payload.llm_api_key != "****":
+    # None / '****' 視為未修改；空字串代表清除已存的 key
+    if payload.llm_api_key not in (None, "****"):
         updates["llm_api_key"] = payload.llm_api_key
     if payload.llm_base_url is not None:
         updates["llm_base_url"] = payload.llm_base_url

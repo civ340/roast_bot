@@ -45,10 +45,7 @@ async def escalate_excuse(req: EscalateRequest):
     current_level = session["venom_level"]
     new_level = current_level + 1
     is_nuclear = new_level >= MAX_EXCUSE_LEVEL
-
-    await memory.set_level(pool, req.session_id, new_level)
-    if is_nuclear:
-        await memory.trigger_nuclear(pool, req.session_id)
+    # 等級與核彈旗標在 LLM 成功後才寫回 DB，避免失敗時狀態被推進
 
     async with (await get_pool()).acquire() as conn:
         last_user_input = await conn.fetchval(
@@ -65,6 +62,10 @@ async def escalate_excuse(req: EscalateRequest):
         excuse_level=new_level,
         previous_output=last_bot_output,
     )
+
+    await memory.set_level(pool, req.session_id, new_level)
+    if is_nuclear:
+        await memory.trigger_nuclear(pool, req.session_id)
     await memory.save_message(pool, req.session_id, req.user_id, "bot", excuse_text, new_level)
 
     return ExcuseResponse(

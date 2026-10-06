@@ -13,6 +13,16 @@ EXCUSE_EMOJI = ["📋", "🎭", "💣", "🌀", "🚀", "👑"]
 _sessions: dict[int, dict] = {}
 
 
+async def _await_or_report_error(followup, coro):
+    """執行 coro 並回傳結果；失敗時用 followup 送出錯誤訊息並往上拋出例外，讓呼叫端不要繼續更新 session 狀態。
+    interaction 已經 defer() 過，Discord 本身就會顯示「思考中」的原生提示，不需要自己做動畫訊息。"""
+    try:
+        return await coro
+    except Exception:
+        await followup.send("😵 出了點問題，稍後再試。")
+        raise
+
+
 class EscalateView(discord.ui.View):
     def __init__(self, user_id: int, mode: str):
         super().__init__(timeout=300)
@@ -30,26 +40,30 @@ class EscalateView(discord.ui.View):
             await interaction.response.send_message("找不到對話，請重新開始。", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        # 按鈕（component）互動預設 defer() 是 deferred_message_update，不會顯示任何等待提示；
+        # 要跟 slash command 一樣讓 Discord 顯示原生「思考中」，component 互動要帶 thinking=True
+        await interaction.response.defer(thinking=True)
 
         new_level = session["level"] + 1
         is_roast = session["mode"] == "roast"
 
         if is_roast:
             is_nuclear = new_level >= 5
-            result = await llm.generate_roast(
+            coro = llm.generate_roast(
                 session["last_input"], new_level,
                 is_nuclear=is_nuclear,
                 previous_output=session["last_output"],
             )
-            emoji = "💥" if is_nuclear else ROAST_EMOJI[min(new_level - 1, 4)]
         else:
             is_nuclear = new_level >= 6
-            result = await llm.generate_excuse(
+            coro = llm.generate_excuse(
                 session["last_input"], new_level,
                 previous_output=session["last_output"],
             )
-            emoji = EXCUSE_EMOJI[min(new_level - 1, 5)]
+
+        result = await _await_or_report_error(interaction.followup, coro)
+        emoji = ("💥" if is_nuclear else ROAST_EMOJI[min(new_level - 1, 4)]) if is_roast \
+            else EXCUSE_EMOJI[min(new_level - 1, 5)]
 
         session["last_output"] = result
         session["level"] = new_level
@@ -59,7 +73,7 @@ class EscalateView(discord.ui.View):
             label = "再毒一點 🐍" if is_roast else "再誇一點 🎭"
             view.children[0].label = label  # type: ignore
 
-        await interaction.followup.send(f"{emoji} {result}", view=view)
+        await interaction.followup.send(content=f"{emoji} {result}", view=view)
 
 
 class TongueBot(discord.Client):
@@ -86,7 +100,7 @@ async def roast_cmd(interaction: discord.Interaction, text: str):
         return
 
     await interaction.response.defer()
-    result = await llm.generate_roast(text, venom_level=1)
+    result = await _await_or_report_error(interaction.followup, llm.generate_roast(text, venom_level=1))
 
     _sessions[interaction.user.id] = {
         "mode": "roast", "level": 1,
@@ -94,7 +108,7 @@ async def roast_cmd(interaction: discord.Interaction, text: str):
     }
 
     view = EscalateView(interaction.user.id, "roast")
-    await interaction.followup.send(f"😏 {result}", view=view)
+    await interaction.followup.send(content=f"😏 {result}", view=view)
 
 
 @client.tree.command(name="excuse", description="幫你想借口")
@@ -105,7 +119,7 @@ async def excuse_cmd(interaction: discord.Interaction, situation: str):
         return
 
     await interaction.response.defer()
-    result = await llm.generate_excuse(situation, excuse_level=1)
+    result = await _await_or_report_error(interaction.followup, llm.generate_excuse(situation, excuse_level=1))
 
     _sessions[interaction.user.id] = {
         "mode": "excuse", "level": 1,
@@ -114,7 +128,7 @@ async def excuse_cmd(interaction: discord.Interaction, situation: str):
 
     view = EscalateView(interaction.user.id, "excuse")
     view.children[0].label = "再誇一點 🎭"  # type: ignore
-    await interaction.followup.send(f"📋 {result}", view=view)
+    await interaction.followup.send(content=f"📋 {result}", view=view)
 
 
 def main():

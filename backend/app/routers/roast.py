@@ -40,14 +40,15 @@ async def escalate_roast(req: EscalateRequest):
     if session["nuclear_triggered"]:
         raise HTTPException(status_code=400, detail="Already at nuclear level")
 
-    new_level = await memory.escalate_venom(pool, req.session_id, req.user_id)
-
-    is_nuclear = False
-    if new_level is None:
+    # 先只計算下一級，LLM 成功後才寫回 DB，避免失敗時等級被跳過或卡在核彈狀態
+    current_level = session["venom_level"]
+    if current_level < 5:
+        new_level = current_level + 1
+        is_nuclear = False
+    else:
         # 已在等級 5，觸發核彈終極模式
         new_level = 5
         is_nuclear = True
-        await memory.trigger_nuclear(pool, req.session_id)
 
     async with pool.acquire() as conn:
         last_user_input = await conn.fetchval(
@@ -65,6 +66,11 @@ async def escalate_roast(req: EscalateRequest):
         is_nuclear=is_nuclear,
         previous_output=last_bot_output,
     )
+
+    if is_nuclear:
+        await memory.trigger_nuclear(pool, req.session_id)
+    else:
+        await memory.escalate_venom(pool, req.session_id, req.user_id)
     await memory.save_message(pool, req.session_id, req.user_id, "bot", roast_text, new_level)
 
     return RoastResponse(

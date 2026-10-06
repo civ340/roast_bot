@@ -102,7 +102,9 @@ async def _call(messages: list[dict]) -> str:
     else:
         # openai or ollama — both use OpenAI-compatible /v1 endpoint
         effective_base = f"{base_url}/v1" if provider == "ollama" else None
-        return await _call_openai_compat(messages, model, api_key, effective_base)
+        # Ollama 的思考型模型（qwen3.5 等）預設會先輸出大量思考內容，關閉以免拖慢或吃光 token 導致回覆空白
+        extra_body = {"reasoning_effort": "none"} if provider == "ollama" else None
+        return await _call_openai_compat(messages, model, api_key, effective_base, extra_body)
 
 
 async def _call_openai_compat(
@@ -110,13 +112,14 @@ async def _call_openai_compat(
     model: str,
     api_key: str,
     base_url: str | None,
+    extra_body: dict | None = None,
 ) -> str:
     from openai import AsyncOpenAI
     kwargs: dict = {"api_key": api_key or "ollama"}
     if base_url:
         kwargs["base_url"] = base_url
     client = AsyncOpenAI(**kwargs)
-    resp = await client.chat.completions.create(model=model, messages=messages)
+    resp = await client.chat.completions.create(model=model, messages=messages, extra_body=extra_body)
     return resp.choices[0].message.content.strip()
 
 

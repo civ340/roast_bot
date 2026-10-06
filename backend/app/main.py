@@ -1,16 +1,35 @@
 # FastAPI 應用程式入口：路由註冊、啟動設定載入、LINE webhook
+import logging
+import secrets
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
+from app.config import settings as env
 from app.db.database import get_pool, close_pool
 from app.services import app_settings as cfg
-from app.routers import roast, excuse, stats, settings
+from app.services import auth
+from app.routers import roast, excuse, stats, settings, auth as auth_router
+
+logger = logging.getLogger(__name__)
+
+# 不需要登入就能存取的路徑：/api/auth 與 /webhook 供登入與平台 webhook 使用。
+# /api/roast、/api/excuse 是 Telegram/Discord bot 對 backend 的內部呼叫，不是後台管理介面，
+# 不能對外公開，改用共享密鑰（X-Internal-Secret）驗證。
+PUBLIC_PATHS = {"/health"}
+PUBLIC_PREFIXES = ("/api/auth/", "/webhook/")
+INTERNAL_PREFIXES = ("/api/roast/", "/api/excuse/")
+INTERNAL_SECRET_HEADER = "X-Internal-Secret"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not env.api_secret_key:
+        raise RuntimeError("API_SECRET_KEY 不可為空，這是 bot 對內部端點認證用的共享密鑰")
+
     # 啟動時建立 DB pool 並載入後台設定到記憶體
     pool = await get_pool()
     await cfg.load(pool)
@@ -22,32 +41,80 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+async def _log_request(method: str, path: str, status_code: int, duration_ms: int):
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO request_logs (method, path, status_code, duration_ms) VALUES ($1, $2, $3, $4)",
+                method, path, status_code, duration_ms,
+            )
+    except Exception:
+        logger.exception("Failed to write request log for %s %s", method, path)
+
+
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start = time.monotonic()
         response = await call_next(request)
         duration_ms = int((time.monotonic() - start) * 1000)
         if request.url.path != "/health":
-            try:
-                pool = await get_pool()
-                async with pool.acquire() as conn:
-                    await conn.execute(
-                        "INSERT INTO request_logs (method, path, status_code, duration_ms) VALUES ($1, $2, $3, $4)",
-                        request.method, request.url.path, response.status_code, duration_ms,
-                    )
-            except Exception:
-                pass
+            log_task = BackgroundTask(
+                _log_request, request.method, request.url.path, response.status_code, duration_ms,
+            )
+            if response.background is not None:
+                response.background = _chain_background(response.background, log_task)
+            else:
+                response.background = log_task
         return response
 
 
+def _chain_background(first: BackgroundTask, second: BackgroundTask) -> BackgroundTask:
+    async def run():
+        try:
+            await first()
+        except Exception:
+            logger.exception("Background task failed before request log write")
+        await second()
+    return BackgroundTask(run)
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if (
+            request.method == "OPTIONS"
+            or path in PUBLIC_PATHS
+            or path.startswith(PUBLIC_PREFIXES)
+            or not path.startswith("/api/")
+        ):
+            return await call_next(request)
+
+        if path.startswith(INTERNAL_PREFIXES):
+            header_secret = request.headers.get(INTERNAL_SECRET_HEADER, "")
+            if env.api_secret_key and secrets.compare_digest(header_secret, env.api_secret_key):
+                return await call_next(request)
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+        pool = await get_pool()
+        username = await auth.get_session_username(pool, request.cookies.get(auth.SESSION_COOKIE))
+        if not username:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
 app.add_middleware(RequestLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router, prefix="/api/auth")
 app.include_router(roast.router,    prefix="/api/roast")
 app.include_router(excuse.router,   prefix="/api/excuse")
 app.include_router(stats.router,    prefix="/api/stats")
