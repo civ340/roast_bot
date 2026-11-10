@@ -1,6 +1,7 @@
 # 後台設定路由：讓管理介面讀取與更新 LLM 設定、平台開關
+from typing import Literal
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.db.database import get_pool
 from app.services import app_settings as cfg
 
@@ -8,13 +9,25 @@ router = APIRouter()
 
 
 class SettingsPayload(BaseModel):
-    llm_provider:     str | None = None
-    llm_model:        str | None = None
-    llm_api_key:      str | None = None  # None 或 '****' 代表不更新，'' 代表清除
-    llm_base_url:     str | None = None
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    llm_provider:     Literal["ollama", "openai", "anthropic"] | None = None
+    llm_model:        str | None = Field(default=None, min_length=1, max_length=200)
+    llm_api_key:      str | None = Field(default=None, max_length=500)  # None 或 '****' 代表不更新，'' 代表清除
+    llm_base_url:     str | None = Field(default=None, max_length=500)
     telegram_enabled: bool | None = None
     line_enabled:     bool | None = None
     discord_enabled:  bool | None = None
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def _check_base_url(cls, value: str | None) -> str | None:
+        # 後台每次儲存都會把這個欄位一起送來（就算目前不是用 Ollama），所以空字串要放行
+        if not value:
+            return value
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("llm_base_url 必須以 http:// 或 https:// 開頭")
+        return value.rstrip("/")
 
 
 @router.get("")

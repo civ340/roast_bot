@@ -31,7 +31,7 @@ async def get_overview():
 
 
 @router.get("/sessions")
-async def get_sessions(page: int = Query(1, ge=1), limit: int = Query(20, le=100)):
+async def get_sessions(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100)):
     # 分頁回傳所有對話 session 列表
     pool = await get_pool()
     offset = (page - 1) * limit
@@ -60,7 +60,7 @@ async def get_sessions(page: int = Query(1, ge=1), limit: int = Query(20, le=100
 @router.get("/logs")
 async def get_logs(
     page: int = Query(1, ge=1),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=200),
     status: str = Query("all"),  # all | success | error
 ):
     pool = await get_pool()
@@ -85,8 +85,8 @@ async def get_logs(
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_messages(session_id: str):
-    # 回傳指定 session 的完整訊息記錄
+async def get_messages(session_id: UUID):
+    # 回傳指定 session 的完整訊息記錄（session_id 不是合法 UUID 時 FastAPI 會直接回 422）
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -94,8 +94,8 @@ async def get_messages(session_id: str):
             SELECT id, session_id, user_id, role, content, venom_level, created_at
             FROM messages
             WHERE session_id = $1
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, id ASC
             """,
-            UUID(session_id),
+            session_id,
         )
     return [dict(r) for r in rows]

@@ -2,7 +2,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json .
-RUN npm install
+# npm ci 完全照 package-lock.json 安裝，每次 build 拿到的相依套件版本才會一樣
+RUN npm ci
 
 COPY . .
 RUN npm run build

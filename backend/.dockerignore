@@ -1,0 +1,10 @@
+# 不要把密鑰、虛擬環境、快取打包進 image
+.env
+.env.*
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.git/

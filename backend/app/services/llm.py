@@ -1,5 +1,20 @@
+# LLM 呼叫層：依後台設定切換 Ollama / OpenAI / Anthropic
 from __future__ import annotations
+import asyncio
+import logging
+from app.config import settings as env, MAX_OUTPUT_CHARS
+from app.errors import LLMError
 from app.services import app_settings as cfg
+
+logger = logging.getLogger(__name__)
+
+# 單次回覆的 token 上限：prompt 要求的字數最多 160 字，這裡只是防止有人用輸入內容誘導模型長篇大論。
+# OpenAI 的推理型模型（o3 等）會把思考過程也算進去，所以給得比較寬。
+MAX_TOKENS = 1024
+OPENAI_MAX_COMPLETION_TOKENS = 4096
+
+# (provider, api_key, base_url) -> client。重複使用同一個 client 才能共用連線；設定一改就換新的
+_clients: dict[tuple, object] = {}
 
 REFLECT_SUFFIX = (
     "\n\n選最犀利、最到位的方式回應，直接輸出結果，不要有任何前言、解釋或思考過程。"
@@ -91,50 +106,83 @@ def _build_messages(
     return messages
 
 
+def _get_client(provider: str, api_key: str, base_url: str | None):
+    key = (provider, api_key, base_url)
+    client = _clients.get(key)
+    if client is None:
+        _clients.clear()
+        if provider == "anthropic":
+            from anthropic import AsyncAnthropic
+            client = AsyncAnthropic(api_key=api_key, timeout=env.llm_timeout_seconds)
+        else:
+            from openai import AsyncOpenAI
+            kwargs: dict = {"api_key": api_key or "ollama", "timeout": env.llm_timeout_seconds}
+            if base_url:
+                kwargs["base_url"] = base_url
+            client = AsyncOpenAI(**kwargs)
+        _clients[key] = client
+    return client
+
+
 async def _call(messages: list[dict]) -> str:
     provider = cfg.get("llm_provider")
     model    = cfg.get("llm_model")
-    api_key  = cfg.get("llm_api_key")
+    api_key  = cfg.get_secret("llm_api_key")
     base_url = cfg.get("llm_base_url")
 
     if provider == "anthropic":
-        return await _call_anthropic(messages, model, api_key)
+        coro = _call_anthropic(messages, model, api_key)
+    elif provider == "ollama":
+        # Ollama 走 OpenAI 相容的 /v1 端點。
+        # 思考型模型（qwen3.5 等）預設會先輸出大量思考內容，關閉以免拖慢或吃光 token 導致回覆空白
+        coro = _call_openai_compat(
+            "ollama", messages, model, api_key, f"{base_url.rstrip('/')}/v1",
+            max_tokens=MAX_TOKENS, extra_body={"reasoning_effort": "none"},
+        )
     else:
-        # openai or ollama — both use OpenAI-compatible /v1 endpoint
-        effective_base = f"{base_url}/v1" if provider == "ollama" else None
-        # Ollama 的思考型模型（qwen3.5 等）預設會先輸出大量思考內容，關閉以免拖慢或吃光 token 導致回覆空白
-        extra_body = {"reasoning_effort": "none"} if provider == "ollama" else None
-        return await _call_openai_compat(messages, model, api_key, effective_base, extra_body)
+        coro = _call_openai_compat(
+            "openai", messages, model, api_key, None,
+            max_completion_tokens=OPENAI_MAX_COMPLETION_TOKENS,
+        )
+
+    try:
+        # SDK 自己會重試，這裡再包一層總時限，確保 backend 一定比 bot 那邊的 HTTP timeout 早放棄
+        text = await asyncio.wait_for(coro, timeout=env.llm_timeout_seconds)
+    except Exception as exc:
+        logger.exception("LLM 呼叫失敗（provider=%s, model=%s）", provider, model)
+        raise LLMError() from exc
+
+    text = (text or "").strip()
+    if not text:
+        logger.error("LLM 回覆為空（provider=%s, model=%s）", provider, model)
+        raise LLMError("LLM returned an empty reply")
+    return text[:MAX_OUTPUT_CHARS]
 
 
 async def _call_openai_compat(
+    provider: str,
     messages: list[dict],
     model: str,
     api_key: str,
     base_url: str | None,
-    extra_body: dict | None = None,
-) -> str:
-    from openai import AsyncOpenAI
-    kwargs: dict = {"api_key": api_key or "ollama"}
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = AsyncOpenAI(**kwargs)
-    resp = await client.chat.completions.create(model=model, messages=messages, extra_body=extra_body)
-    return resp.choices[0].message.content.strip()
+    **params,
+) -> str | None:
+    client = _get_client(provider, api_key, base_url)
+    resp = await client.chat.completions.create(model=model, messages=messages, **params)
+    return resp.choices[0].message.content if resp.choices else None
 
 
 async def _call_anthropic(messages: list[dict], model: str, api_key: str) -> str:
-    from anthropic import AsyncAnthropic
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     chat_msgs = [m for m in messages if m["role"] != "system"]
-    client = AsyncAnthropic(api_key=api_key)
+    client = _get_client("anthropic", api_key, None)
     resp = await client.messages.create(
         model=model,
         system=system,
         messages=chat_msgs,
-        max_tokens=1024,
+        max_tokens=MAX_TOKENS,
     )
-    return resp.content[0].text.strip()
+    return "".join(block.text for block in resp.content if getattr(block, "type", "") == "text")
 
 
 async def generate_roast(

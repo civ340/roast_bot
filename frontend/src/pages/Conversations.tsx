@@ -51,7 +51,7 @@ export default function Conversations() {
           >
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium truncate">
-                {s.username ? `@${s.username}` : `User ${s.user_id}`}
+                {s.username ? `@${s.username}` : s.user_id}
               </span>
               <span className="text-xs text-gray-500 shrink-0 ml-2">
                 {levelEmoji(s.mode, s.venom_level)} Lv.{s.venom_level}
