@@ -1,13 +1,23 @@
 # API 請求與回應的資料格式定義（Pydantic 自動做型別驗證）
-from pydantic import BaseModel
-from datetime import datetime
+from typing import Literal
 from uuid import UUID
+from pydantic import BaseModel, ConfigDict, Field
+from app.config import MAX_INPUT_CHARS
+
+Platform = Literal["telegram", "line", "discord"]
+
+
+class _UserRequest(BaseModel):
+    # user_id 是該平台上的用戶 ID；Telegram / Discord 是數字、LINE 是字串，一律當字串處理
+    model_config = ConfigDict(coerce_numbers_to_str=True, str_strip_whitespace=True)
+
+    platform: Platform = "telegram"
+    user_id: str = Field(min_length=1, max_length=64)
 
 
 # 嗆辣：開始一場新的評論
-class RoastRequest(BaseModel):
-    content: str
-    user_id: int
+class RoastRequest(_UserRequest):
+    content: str = Field(min_length=1, max_length=MAX_INPUT_CHARS)
     username: str | None = None
 
 
@@ -21,15 +31,13 @@ class RoastResponse(BaseModel):
 
 
 # 嗆辣 & 借口共用：升級請求
-class EscalateRequest(BaseModel):
-    session_id: str
-    user_id: int
+class EscalateRequest(_UserRequest):
+    session_id: UUID
 
 
 # 借口：開始一個新的借口情境
-class ExcuseRequest(BaseModel):
-    situation: str
-    user_id: int
+class ExcuseRequest(_UserRequest):
+    situation: str = Field(min_length=1, max_length=MAX_INPUT_CHARS)
     username: str | None = None
 
 
@@ -40,14 +48,3 @@ class ExcuseResponse(BaseModel):
     excuse_level: int   # 1~6
     can_escalate: bool
     is_nuclear: bool
-
-
-# 後台查看對話記錄用
-class ConversationRecord(BaseModel):
-    id: int
-    session_id: UUID
-    user_id: int
-    role: str           # 'user' | 'bot'
-    content: str
-    venom_level: int | None
-    created_at: datetime

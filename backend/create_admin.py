@@ -2,18 +2,18 @@
 import asyncio
 import getpass
 import sys
-from pathlib import Path
 
-from app.db.database import get_pool, close_pool
+from app.db.database import get_pool, close_pool, run_migrations
 from app.services import auth
-
-INIT_SQL_PATH = Path(__file__).resolve().parent / "db" / "init.sql"
 
 
 async def main():
     username = input("帳號: ").strip()
     if not username:
         print("帳號不可為空")
+        sys.exit(1)
+    if len(username) > 100:
+        print("帳號最多 100 個字元")
         sys.exit(1)
 
     password = getpass.getpass("密碼: ")
@@ -24,15 +24,17 @@ async def main():
     if len(password) < 8:
         print("密碼至少需要 8 個字元")
         sys.exit(1)
+    # bcrypt 只會用到前 72 bytes，超過的部分會被默默忽略，直接擋掉比較不會誤會
+    if len(password.encode()) > 72:
+        print("密碼最多 72 bytes")
+        sys.exit(1)
 
     password_hash = auth.hash_password(password)
 
     pool = await get_pool()
+    # 既有資料庫的 volume 不會重跑 init.sql，這裡重放一次確保表存在（重跑安全，見 run_migrations）
+    await run_migrations(pool)
     async with pool.acquire() as conn:
-        # 既有資料庫的 volume 不會重跑 init.sql，這裡重放整份 init.sql 確保表存在，
-        # 全部語句都是 IF NOT EXISTS / ON CONFLICT DO NOTHING，重跑安全，
-        # 且不用在這裡另外手刻一份會跟 init.sql 走鐘的 schema
-        await conn.execute(INIT_SQL_PATH.read_text(encoding="utf-8"))
         await conn.execute(
             """
             INSERT INTO admin_users (username, password_hash)

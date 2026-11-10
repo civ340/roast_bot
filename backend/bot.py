@@ -1,21 +1,17 @@
 # Telegram Bot：處理用戶訊息、模式選擇（嗆辣/借口）、升級按鈕互動
 import logging
 import secrets
-import time
-import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from app.config import settings
+from app import bot_api
+from app.bot_api import ApiError
+from app.config import settings, MAX_INPUT_CHARS
+from app.services import app_settings as cfg
 
-API_BASE = f"{settings.api_base_url}/api"
-INTERNAL_HEADERS = {"X-Internal-Secret": settings.api_secret_key}
+PLATFORM = "telegram"
 
 ROAST_EMOJI = ["😏", "😈", "🐍", "☠️", "👑"]
 EXCUSE_EMOJI = ["📋", "🎭", "💣", "🌀", "🚀", "👑"]
-
-# 設定快取秒數：bot 為獨立行程，需定期從 DB 重新載入才能反映後台的開關變更
-SETTINGS_TTL = 15
-_settings_loaded_at = 0.0
 
 # 每位用戶最多保留幾筆可重試的動作
 MAX_RETRY_ACTIONS = 20
@@ -62,7 +58,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
-    text = update.message.text
+    text = update.message.text.strip()
+    if not text:
+        return
+    if len(text) > MAX_INPUT_CHARS:
+        await update.message.reply_text(f"太長了，最多 {MAX_INPUT_CHARS} 字。")
+        return
 
     if mode == "roast":
         await _do_roast(update, context, user.id, user.username, text)
@@ -74,16 +75,15 @@ async def _do_roast(update, context, user_id, username, text):
     action = {"type": "roast", "user_id": user_id, "username": username, "text": text}
     await context.bot.send_chat_action(update.effective_chat.id, "typing")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{API_BASE}/roast/start", json={
-                "content": text,
-                "user_id": user_id,
-                "username": username,
-            }, headers=INTERNAL_HEADERS)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
-        await update.effective_message.reply_text("出了點問題，稍後再試。", reply_markup=_retry_markup(context, action))
+        data = await bot_api.post("/roast/start", {
+            "platform": PLATFORM,
+            "user_id": str(user_id),
+            "username": username,
+            "content": text,
+        })
+    except ApiError as err:
+        markup = _retry_markup(context, action) if err.retryable else None
+        await update.effective_message.reply_text(err.message, reply_markup=markup)
         return
 
     emoji = ROAST_EMOJI[data["venom_level"] - 1]
@@ -91,7 +91,7 @@ async def _do_roast(update, context, user_id, username, text):
     if data["can_escalate"]:
         keyboard.append([InlineKeyboardButton(
             "再毒一點 🐍",
-            callback_data=f"roast_esc:{data['session_id']}:{user_id}",
+            callback_data=f"roast_esc:{data['session_id']}",
         )])
     keyboard.append([InlineKeyboardButton("換個目標 🎯", callback_data="reset")])
 
@@ -105,21 +105,20 @@ async def _do_excuse(update, context, user_id, username, text):
     action = {"type": "excuse", "user_id": user_id, "username": username, "text": text}
     await context.bot.send_chat_action(update.effective_chat.id, "typing")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{API_BASE}/excuse/start", json={
-                "situation": text,
-                "user_id": user_id,
-                "username": username,
-            }, headers=INTERNAL_HEADERS)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
-        await update.effective_message.reply_text("出了點問題，稍後再試。", reply_markup=_retry_markup(context, action))
+        data = await bot_api.post("/excuse/start", {
+            "platform": PLATFORM,
+            "user_id": str(user_id),
+            "username": username,
+            "situation": text,
+        })
+    except ApiError as err:
+        markup = _retry_markup(context, action) if err.retryable else None
+        await update.effective_message.reply_text(err.message, reply_markup=markup)
         return
 
     emoji = EXCUSE_EMOJI[data["excuse_level"] - 1]
     keyboard = [
-        [InlineKeyboardButton("再誇一點 🎭", callback_data=f"excuse_esc:{data['session_id']}:{user_id}")],
+        [InlineKeyboardButton("再誇一點 🎭", callback_data=f"excuse_esc:{data['session_id']}")],
         [InlineKeyboardButton("換個情況 🔄", callback_data="excuse_new")],
     ]
 
@@ -129,21 +128,29 @@ async def _do_excuse(update, context, user_id, username, text):
     )
 
 
-async def _do_roast_escalate(update, context, session_id, user_id):
-    # 失敗時在原訊息上改為重試按鈕，重試時 callback 的 message 即為原本那則訊息
+async def _report_escalate_error(update, context, err: ApiError, action):
     query = update.callback_query
-    action = {"type": "roast_esc", "session_id": session_id, "user_id": user_id}
+    if err.retryable:
+        # 暫時性錯誤：在原訊息上改為重試按鈕，重試時 callback 的 message 即為原本那則訊息
+        await query.edit_message_text(err.message, reply_markup=_retry_markup(context, action))
+    else:
+        # 重試也沒用的錯誤（按太快、不是自己的對話…）：另外回一則，不要把原本那則回覆蓋掉
+        await query.message.reply_text(err.message)
+
+
+async def _do_roast_escalate(update, context, session_id):
+    query = update.callback_query
+    action = {"type": "roast_esc", "session_id": session_id}
     await context.bot.send_chat_action(update.effective_chat.id, "typing")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{API_BASE}/roast/escalate", json={
-                "session_id": session_id,
-                "user_id": int(user_id),
-            }, headers=INTERNAL_HEADERS)
-            resp.raise_for_status()
-            result = resp.json()
-    except Exception:
-        await query.edit_message_text("出了點問題，稍後再試。", reply_markup=_retry_markup(context, action))
+        # user_id 用「按下按鈕的人」而不是按鈕裡帶的值，backend 會擋掉不是對話主人的升級
+        result = await bot_api.post("/roast/escalate", {
+            "platform": PLATFORM,
+            "user_id": str(query.from_user.id),
+            "session_id": session_id,
+        })
+    except ApiError as err:
+        await _report_escalate_error(update, context, err, action)
         return
 
     if result["is_nuclear"]:
@@ -153,27 +160,25 @@ async def _do_roast_escalate(update, context, session_id, user_id):
         emoji = ROAST_EMOJI[result["venom_level"] - 1]
         msg = f"{emoji} {result['roast']}"
         keyboard = [
-            [InlineKeyboardButton("再毒一點 🐍", callback_data=f"roast_esc:{session_id}:{user_id}")],
+            [InlineKeyboardButton("再毒一點 🐍", callback_data=f"roast_esc:{session_id}")],
             [InlineKeyboardButton("換個目標 🎯", callback_data="reset")],
         ]
 
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def _do_excuse_escalate(update, context, session_id, user_id):
+async def _do_excuse_escalate(update, context, session_id):
     query = update.callback_query
-    action = {"type": "excuse_esc", "session_id": session_id, "user_id": user_id}
+    action = {"type": "excuse_esc", "session_id": session_id}
     await context.bot.send_chat_action(update.effective_chat.id, "typing")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{API_BASE}/excuse/escalate", json={
-                "session_id": session_id,
-                "user_id": int(user_id),
-            }, headers=INTERNAL_HEADERS)
-            resp.raise_for_status()
-            result = resp.json()
-    except Exception:
-        await query.edit_message_text("出了點問題，稍後再試。", reply_markup=_retry_markup(context, action))
+        result = await bot_api.post("/excuse/escalate", {
+            "platform": PLATFORM,
+            "user_id": str(query.from_user.id),
+            "session_id": session_id,
+        })
+    except ApiError as err:
+        await _report_escalate_error(update, context, err, action)
         return
 
     if result["is_nuclear"]:
@@ -183,7 +188,7 @@ async def _do_excuse_escalate(update, context, session_id, user_id):
         emoji = EXCUSE_EMOJI[result["excuse_level"] - 1]
         msg = f"{emoji} {result['excuse']}"
         keyboard = [
-            [InlineKeyboardButton("再誇一點 💣", callback_data=f"excuse_esc:{session_id}:{user_id}")],
+            [InlineKeyboardButton("再誇一點 💣", callback_data=f"excuse_esc:{session_id}")],
             [InlineKeyboardButton("換個情況 🔄", callback_data="excuse_new")],
         ]
 
@@ -227,40 +232,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif last["type"] == "excuse":
             await _do_excuse(update, context, last["user_id"], last["username"], last["text"])
         elif last["type"] == "roast_esc":
-            await _do_roast_escalate(update, context, last["session_id"], last["user_id"])
+            await _do_roast_escalate(update, context, last["session_id"])
         elif last["type"] == "excuse_esc":
-            await _do_excuse_escalate(update, context, last["session_id"], last["user_id"])
+            await _do_excuse_escalate(update, context, last["session_id"])
         return
 
+    # 格式是 '<動作>:<session_id>'。舊版按鈕後面還多帶一段 user_id，一樣能解析（多的部分不用）
     if data.startswith("roast_esc:"):
-        _, session_id, user_id = data.split(":")
-        await _do_roast_escalate(update, context, session_id, user_id)
+        await _do_roast_escalate(update, context, data.split(":")[1])
         return
 
     if data.startswith("excuse_esc:"):
-        _, session_id, user_id = data.split(":")
-        await _do_excuse_escalate(update, context, session_id, user_id)
-
-
-async def _refresh_settings():
-    # 超過 TTL 才重新從 DB 載入設定；讀取失敗時保留上次的值
-    global _settings_loaded_at
-    if time.monotonic() - _settings_loaded_at < SETTINGS_TTL:
-        return
-    from app.db.database import get_pool
-    from app.services import app_settings as cfg
-    try:
-        pool = await get_pool()
-        await cfg.load(pool)
-    except Exception:
-        logger.exception("重新載入設定失敗，沿用上次的值")
-    # 失敗也更新時間，避免 DB 異常時每則訊息都重試
-    _settings_loaded_at = time.monotonic()
+        await _do_excuse_escalate(update, context, data.split(":")[1])
 
 
 async def _check_enabled(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    from app.services import app_settings as cfg
-    await _refresh_settings()
+    await cfg.reload_if_stale(bot_api.SETTINGS_TTL)
     if not cfg.is_enabled("telegram_enabled"):
         await update.effective_message.reply_text("Telegram Bot 目前已停用。")
         return False
@@ -269,12 +256,9 @@ async def _check_enabled(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def _post_init(application):
     # event loop 啟動後才載入設定，避免 asyncio event loop 衝突
-    global _settings_loaded_at
     from app.db.database import get_pool
-    from app.services import app_settings as cfg
     pool = await get_pool()
     await cfg.load(pool)
-    _settings_loaded_at = time.monotonic()
 
 
 def main():

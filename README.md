@@ -71,6 +71,12 @@ cp .env.example .env
 
 填入必要的值（詳見下方環境變數說明）。
 
+**`API_SECRET_KEY` 一定要自己產生一組**，留空、用 `changeme` 或少於 16 個字元的話 backend 會拒絕啟動：
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
 ### 2. 啟動服務
 
 **⚠️ 這裡的指令會經由 `docker-compose.override.yml` 把 backend 的 8000 port 發布到本機**
@@ -126,10 +132,24 @@ docker compose -f docker-compose.yml --profile discord up -d --build
 
 - `/api/roast`、`/api/excuse` 是給 Telegram/Discord bot 用的內部端點，靠
   `API_SECRET_KEY` 共享密鑰保護，不應該讓 backend 直接暴露在網路上。
+  nginx 也會直接把從外面打進來的這兩個路徑回 404（bot 走 docker 內部網路，不經過 nginx）。
 - postgres 也不該對外，不然資料庫密碼就變成唯一的防線。
 - LINE 的 webhook（`/webhook/line`）改由 nginx 轉發給 backend（見
   `frontend/nginx.conf` 的 `location /webhook`），所以即使 backend 沒有對外，
   平台一樣可以打 `https://你的網域/webhook/line` 進來，不需要額外開 port。
+- 這份 compose 沒有包含 HTTPS。對外服務時請在 nginx（5173）前面再放一層終結 TLS 的反向代理
+  （Caddy、Cloudflare Tunnel 等），並確認它有帶 `X-Forwarded-Proto` 與 `X-Forwarded-For`：
+  backend 靠前者幫登入 cookie 加上 `Secure`，nginx 靠後者取得真正的來源 IP（登入鎖定與頻率限制用）。
+
+### 從舊版升級
+
+- `API_SECRET_KEY` 如果還是 `changeme`，先換掉再啟動，否則 backend 起不來。
+- backend 啟動時會自動更新資料庫 schema：`users.id` 從 Telegram 的數字 ID 改成
+  `平台:ID`（既有資料會轉成 `telegram:<原本的 ID>`），不需要手動處理。**升級前建議先備份資料庫。**
+- 後台已存的 LLM API Key 會在啟動時自動加密，不用重新輸入。
+- 所有管理員需要重新登入一次（session token 改成雜湊後才存進資料庫）。
+- `request_logs` 預設只保留 30 天，升級後第一次啟動就會清掉更舊的紀錄；
+  想保留請先設定 `LOG_RETENTION_DAYS=0`。
 
 ---
 
@@ -140,13 +160,31 @@ docker compose -f docker-compose.yml --profile discord up -d --build
 | `POSTGRES_USER` | ✓ | 資料庫帳號 |
 | `POSTGRES_PASSWORD` | ✓ | 資料庫密碼 |
 | `POSTGRES_DB` | ✓ | 資料庫名稱 |
-| `API_SECRET_KEY` | ✓ | 後端 secret |
+| `API_SECRET_KEY` | ✓ | bot 呼叫 backend 內部端點的共享密鑰，同時是 LLM API Key 的加密金鑰來源。至少 16 個字元，不可用 `changeme`。換掉之後要到後台重新輸入 LLM API Key |
 | `TELEGRAM_BOT_TOKEN` | 使用 Telegram 時必填 | 從 @BotFather 取得 |
 | `LINE_CHANNEL_SECRET` | 使用 LINE 時必填 | LINE Developers Console |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 使用 LINE 時必填 | LINE Developers Console |
 | `DISCORD_BOT_TOKEN` | 使用 Discord 時必填 | Discord Developer Portal |
 
-> LLM provider、model、API key 透過管理後台設定，不需要寫在 `.env`。
+選填（括號內是預設值）：
+
+| 變數 | 說明 |
+|------|------|
+| `RATE_LIMIT_PER_MINUTE`（10） | 每位用戶每分鐘最多幾次請求，0 = 不限制 |
+| `RATE_LIMIT_PER_DAY`（200） | 每位用戶每天最多幾次請求，0 = 不限制 |
+| `LLM_TIMEOUT_SECONDS`（55） | 單次 LLM 呼叫最多等幾秒，本機 Ollama 跑得慢可以調高 |
+| `LOG_RETENTION_DAYS`（30） | `request_logs` 保留天數，0 = 永久保留 |
+| `MESSAGE_RETENTION_DAYS`（0） | 對話內容保留天數，0 = 永久保留 |
+| `CORS_ORIGINS`（`http://localhost:5173`） | 允許跨來源呼叫後台 API 的來源，逗號分隔，只有本機 `npm run dev` 會用到 |
+
+> LLM provider、model、API key 透過管理後台設定，不需要寫在 `.env`。API key 會加密後才存進資料庫。
+
+### 使用限制
+
+- 單次輸入最多 1000 字，回覆最多 1500 字。
+- 每位用戶有頻率上限（見上表），超過會請對方等一下。計數存在 backend 記憶體裡，重啟後歸零。
+- 只有開啟那場對話的人可以按「再毒一點 / 再誇一點」，群組裡其他人按了不算。
+- 後台登入：同一個來源 IP 對同一個帳號連續失敗 5 次會被擋 15 分鐘。
 
 ---
 
@@ -172,7 +210,7 @@ docker compose -f docker-compose.yml --profile discord up -d --build
 ### LINE
 - 直接傳文字 → 嗆辣模式
 - 以「藉口」開頭傳文字（例：`藉口我遲到了`）→ 藉口模式
-- Quick Reply 按鈕繼續升級
+- Quick Reply 按鈕「再毒一點 / 再誇一點」繼續升級，「換個目標 / 換個情況」顯示使用說明
 
 ### Discord
 - `/roast <text>` — 嗆辣評論
@@ -195,10 +233,16 @@ ngrok http 8000
 ## 資料庫 Schema
 
 ```
-users         — 用戶基本資料
+users         — 用戶基本資料（id 格式為「平台:平台上的用戶 ID」，例如 telegram:123456、line:Uabc…、discord:987654）
 sessions      — 每次對話的 session（mode: roast | excuse）
 messages      — 每條訊息記錄
-app_settings  — 後台設定（provider、model、api key 等）
+app_settings  — 後台設定（provider、model、api key 等，api key 為加密儲存）
+admin_users   — 後台管理員帳號（密碼為 bcrypt 雜湊）
+admin_sessions — 後台登入 session（只存 token 的 SHA-256）
+request_logs  — API 請求紀錄
+
+Schema 定義在 backend/db/init.sql，backend 每次啟動都會重放一次（全部語句都可重複執行），
+所以改 schema 時直接在那份檔案裡加可重複執行的語句即可。
 ```
 
 ---

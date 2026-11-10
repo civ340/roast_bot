@@ -9,7 +9,7 @@ export interface StatsOverview {
 export interface ConversationRecord {
   id: number
   session_id: string
-  user_id: number
+  user_id: string  // 格式是「平台:平台上的用戶 ID」，例如 telegram:123456
   role: 'user' | 'bot'
   content: string
   venom_level: number | null
@@ -37,7 +37,7 @@ export interface RequestLog {
 
 export interface SessionRecord {
   id: string
-  user_id: number
+  user_id: string  // 格式是「平台:平台上的用戶 ID」，例如 telegram:123456
   username: string | null
   mode: string
   venom_level: number

@@ -53,6 +53,7 @@ export default function Settings() {
   const [form, setForm] = useState<AppSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [editingKey, setEditingKey] = useState(false)
   // 使用者實際輸入過 API Key 才送出，避免未修改時送出空字串而清除已存的 key
   const [keyDirty, setKeyDirty] = useState(false)
@@ -73,6 +74,7 @@ export default function Settings() {
   const handleSave = async () => {
     if (!form) return
     setSaving(true)
+    setError('')
     try {
       const { llm_api_key, ...rest } = form
       const updated = await saveSettings(keyDirty ? { ...rest, llm_api_key } : rest)
@@ -81,6 +83,12 @@ export default function Settings() {
       setKeyDirty(false)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      // 後端會驗證設定值（provider 只能是清單內的、模型名稱不可為空、Base URL 要是 http(s) 網址）
+      const status = (err as { response?: { status?: number } }).response?.status
+      setError(status === 422
+        ? '設定值不正確：請確認模型名稱有填，且 Ollama Base URL 是 http:// 或 https:// 開頭的網址。'
+        : '儲存失敗，請稍後再試。')
     } finally {
       setSaving(false)
     }
@@ -98,16 +106,17 @@ export default function Settings() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Provider</label>
-            <input
+            {/* 後端只接受這三種 provider，所以用下拉選單而不是自由輸入 */}
+            <select
               value={form.llm_provider}
               onChange={e => set('llm_provider', e.target.value)}
-              list="provider-suggestions"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500"
-              placeholder="e.g. ollama、openai、anthropic"
-            />
-            <datalist id="provider-suggestions">
+            >
+              {!PROVIDERS.some(p => p.value === form.llm_provider) && (
+                <option value={form.llm_provider}>{form.llm_provider}（不支援，請重新選擇）</option>
+              )}
               {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </datalist>
+            </select>
           </div>
 
           <div>
@@ -186,6 +195,8 @@ export default function Settings() {
           onChange={v => set('discord_enabled', String(v))}
         />
       </section>
+
+      {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
 
       <button
         onClick={handleSave}

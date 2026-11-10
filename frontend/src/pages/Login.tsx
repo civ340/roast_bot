@@ -14,8 +14,9 @@ export default function Login({ onLoggedIn }: { onLoggedIn: (username: string) =
     try {
       const data = await login(username, password)
       onLoggedIn(data.username)
-    } catch {
-      setError('帳號或密碼錯誤')
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status
+      setError(status === 429 ? '登入失敗次數過多，請 15 分鐘後再試' : '帳號或密碼錯誤')
     } finally {
       setSubmitting(false)
     }
