@@ -1,0 +1,53 @@
+schema_version: 3
+spec_slug: fix-useeffect-deps
+parent_spec: null
+verification_tier: 1
+mutation_threshold: null
+mutation_threshold_rationale: ''
+last_mutation_run: null
+paths_to_mutate: []
+mutation_runner: null
+spec_quality_score: null
+spec_quality_score_at: null
+ac:
+- id: AC-001
+  title: Logs.tsx lint-clean and build passes
+  type: mechanical
+  test_ids:
+  - tests/test_frontend_lint.py::test_ac_001_lint_clean_and_build
+  executable_predicate: subprocess.run('npx eslint . --max-warnings 0', shell=True,
+    cwd='frontend').returncode == 0 and subprocess.run('npm run build', shell=True,
+    cwd='frontend').returncode == 0
+  golden_table: []
+  rubric_id: null
+  note: ''
+  pending_test: false
+  oracle_source: golden
+  oracle_evidence: ESLint's react-hooks plugin and the TypeScript compiler are third-party
+    tools independent of the changed code; the expected result (0 warnings, exit 0)
+    is fixed before the change.
+  oracle_independence_waiver: null
+  input_domain: null
+  transformation: null
+  expected_relation: null
+  preconditions: []
+  observable_output: null
+  generator_hint: null
+  judgment_verdict: null
+  judged_at: null
+  judgment_evidence: null
+  judgment_subject_paths: []
+  judgment_subject_hash: null
+irreversible_decisions: []
+approval:
+  kind: exempt
+  content_hash: eed3086cac2ffc016333d9033b93c42a6d2bcdf6e4883f33948806772175b7a8
+  approved_by: null
+  approved_at: '2026-11-27T14:21:00Z'
+  field_hashes:
+    schema_version: 4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce
+    spec_slug: 199ce4f0fde6fdf5c80d8d4ec22b20c910d3b3abf3991b47f24c9e2f65629d07
+    verification_tier: 6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+    irreversible_decisions: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+    AC-001: b1e818694bf7ddddfc201788a71269b4188bf61901bd728f2f7a78c05bbb9b0a
+    ac_order: a1557fcfe162c5ca92cb543b3703219d932e86a98fd3ef7e4d7722599eb526d0

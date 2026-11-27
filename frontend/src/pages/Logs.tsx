@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchLogs } from '../api/client'
 import type { RequestLog } from '../types'
 
@@ -33,21 +33,27 @@ export default function Logs() {
   const [loading, setLoading] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const load = (p = page, f = filter) => {
+  const load = useCallback((p: number, f: Filter) => {
     setLoading(true)
     fetchLogs(p, PAGE_SIZE, f)
       .then(d => { setLogs(d.logs); setTotal(d.total) })
       .finally(() => setLoading(false))
-  }
+  }, [])
 
-  useEffect(() => { load(1, filter); setPage(1) }, [filter])
-  useEffect(() => { load(page, filter) }, [page])
+  // 換 filter 時在 click handler 內同時把 page 重設為 1，這裡只需依 page/filter 載入一次
+  useEffect(() => { load(page, filter) }, [page, filter, load])
+
+  const changeFilter = (f: Filter) => {
+    if (f === filter) return
+    setFilter(f)
+    setPage(1)
+  }
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     if (autoRefresh) timerRef.current = setInterval(() => load(1, filter), 5000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [autoRefresh, filter])
+  }, [autoRefresh, filter, load])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -84,7 +90,7 @@ export default function Logs() {
         {FILTERS.map(f => (
           <button
             key={f.key}
-            onClick={() => setFilter(f.key)}
+            onClick={() => changeFilter(f.key)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               filter === f.key
                 ? 'bg-green-900/60 text-green-300 border border-green-700'
