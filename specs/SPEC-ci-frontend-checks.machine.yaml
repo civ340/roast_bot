@@ -1,0 +1,56 @@
+schema_version: 3
+spec_slug: ci-frontend-checks
+parent_spec: null
+verification_tier: 1
+mutation_threshold: null
+mutation_threshold_rationale: ''
+last_mutation_run: null
+paths_to_mutate: []
+mutation_runner: null
+spec_quality_score: null
+spec_quality_score_at: null
+ac:
+- id: AC-001
+  title: ci.yml runs frontend lint and build alongside backend tests
+  type: mechanical
+  test_ids:
+  - tests/test_ci_workflow.py::test_ac_001_frontend_checks_job
+  executable_predicate: '(lambda w: ''frontend-checks'' in w[''jobs''] and w[''jobs''][''frontend-checks''][''defaults''][''run''][''working-directory'']
+    == ''frontend'' and [s.get(''run'') for s in w[''jobs''][''frontend-checks''][''steps'']
+    if ''run'' in s] == [''npm ci'', ''npx eslint . --max-warnings 0'', ''npm run
+    build''] and ''pytest -q'' in [s.get(''run'') for s in w[''jobs''][''backend-tests''][''steps'']])(yaml.safe_load(open(''.github/workflows/ci.yml'',
+    encoding=''utf-8'')))'
+  golden_table: []
+  rubric_id: null
+  note: ''
+  pending_test: false
+  oracle_source: golden
+  oracle_evidence: The expected commands come from frontend/package.json scripts (build
+    = tsc -b && vite build) and the lint bar already fixed in SPEC-fix-useeffect-deps
+    (--max-warnings 0); the Node version comes from frontend/Dockerfile. None of these
+    are derived from ci.yml itself.
+  oracle_independence_waiver: null
+  input_domain: null
+  transformation: null
+  expected_relation: null
+  preconditions: []
+  observable_output: null
+  generator_hint: null
+  judgment_verdict: null
+  judged_at: null
+  judgment_evidence: null
+  judgment_subject_paths: []
+  judgment_subject_hash: null
+irreversible_decisions: []
+approval:
+  kind: exempt
+  content_hash: 7ec0ec07e5509b996f3d5eb68e65829371d79631da593b6b4fabcd959d4c31b0
+  approved_by: null
+  approved_at: '2026-11-28T07:32:36Z'
+  field_hashes:
+    schema_version: 4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce
+    spec_slug: a58b3af0856c97680f07c8cbf6ba289afb0e4e0d77863e3933b0b46ac2fc342d
+    verification_tier: 6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+    irreversible_decisions: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+    AC-001: 12733fb64a527b4e89f309c0a4a5dcfb0cf59d45a5a5ae407f7f4a3458a67e5a
+    ac_order: a1557fcfe162c5ca92cb543b3703219d932e86a98fd3ef7e4d7722599eb526d0
